@@ -16,7 +16,7 @@ Com o emulador aberto ou o celular conectado por USB com depuração habilitada,
 adb reverse tcp:8000 tcp:8000
 ```
 
-Abra a variante **debug** do GenUi2, descreva a calculadora e toque em **Gerar tela**. O app envia `POST /screens/generate` com um objeto como `{"prompt": "Divida R$ 20000 em 8 parcelas sem juros"}`. A resposta HTTP 200 contém diretamente a ScreenSpec v1 usada pelo renderer. Erros de entrada retornam 422, e falhas do provedor têm um campo `detail`. O servidor escuta em `127.0.0.1:8000`. A edição dos valores e o recálculo acontecem no Android.
+Abra a variante **debug** do GenUi2, descreva a calculadora e toque em **Gerar tela**. O app envia `POST /screens/preview` com um objeto como `{"prompt": "Divida R$ 20000 em 8 parcelas sem juros"}`. A resposta contém `draft` (o plano com campos, cálculos e seções) e `screen` (a ScreenSpec v1 usada pelo renderer). Em **Ajustar tela**, o app envia o último `draft` e o pedido de organização em `prompt` para `POST /screens/revise`. O servidor recompõe a prévia substituindo apenas as seções. Os valores digitados ficam no Android. Clientes que consomem somente a ScreenSpec podem continuar usando `POST /screens/generate`. Erros de entrada retornam 422, e falhas do provedor têm um campo `detail`. O servidor escuta em `127.0.0.1:8000`. A edição dos valores e o recálculo acontecem no Android.
 
 ## Gerar uma tela para o GenUi2
 
@@ -36,7 +36,7 @@ O arquivo [examples/notebook.json](examples/notebook.json) é um exemplo fixo pa
 uv run generate-screen --schema --output screen-spec-v1.schema.json
 ```
 
-O modelo devolve listas de campos e cálculos nomeados. O gerador converte essas listas nos mapas `fields`, `initialState` e `computed` usados pelo parser Kotlin. O plano escolhe entre campos ou resultados primeiro. Cada cálculo final recebe um card com rótulo e valor. Os cálculos intermediários podem aparecer em uma lista de detalhes.
+O modelo devolve listas de campos e cálculos nomeados. O gerador converte essas listas nos mapas `fields`, `initialState` e `computed` usados pelo parser Kotlin. O plano descreve seções em ordem de leitura. Cada seção referencia campos editáveis, resultados em destaque ou cálculos apresentados juntos numa lista comparativa. Cada campo e cada resultado final devem aparecer uma vez. As etapas intermediárias são opcionais.
 
 ## Exercício de ferramentas financeiras
 
