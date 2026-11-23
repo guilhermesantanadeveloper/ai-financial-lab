@@ -8,13 +8,16 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.165.0",
     "openai>=3.16.2",
     "pydantic>=2.12,<3",
     "python-dotenv>=1.2.3",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
 ai-financial-lab = "ai_financial_lab.main:main"
+serve-screens = "ai_financial_lab.screens.api:main"
 generate-screen = "ai_financial_lab.screens.cli:main"
 
 [build-system]

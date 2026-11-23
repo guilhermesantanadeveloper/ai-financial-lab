@@ -2,6 +2,22 @@
 
 Laboratório Python para experimentar chamadas de ferramentas financeiras e geração de telas. Requer Python 3.14 e usa `uv`. Os comandos que consultam o modelo leem `OPENAI_API_KEY` do ambiente ou do arquivo local `.env`.
 
+## Gerar uma tela pelo Android
+
+Com a mesma configuração de `OPENAI_API_KEY` e `OPENAI_MODEL` da CLI, inicie o servidor local na raiz do projeto.
+
+```sh
+uv run serve-screens
+```
+
+Com o emulador aberto ou o celular conectado por USB com depuração habilitada, execute em outro terminal:
+
+```sh
+adb reverse tcp:8000 tcp:8000
+```
+
+Abra a variante **debug** do GenUi2, descreva a calculadora e toque em **Gerar tela**. O app envia `POST /screens/generate` com um objeto como `{"prompt": "Divida R$ 20000 em 8 parcelas sem juros"}`. A resposta HTTP 200 contém diretamente a ScreenSpec v1 usada pelo renderer. Erros de entrada retornam 422, e falhas do provedor têm um campo `detail`. O servidor escuta em `127.0.0.1:8000`. A edição dos valores e o recálculo acontecem no Android.
+
 ## Gerar uma tela para o GenUi2
 
 Na raiz do repositório, execute:

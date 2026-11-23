@@ -1,13 +1,12 @@
 import argparse
 import json
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
 
 from .contract import ScreenSpec
-from .generator import generate_screen
+from .generator import configured_model, generate_screen
 
 
 def main():
@@ -25,7 +24,7 @@ def main():
             load_dotenv()
             if not args.pedido.strip():
                 parser.error("Informe um pedido com texto")
-            model = args.model or os.getenv("OPENAI_MODEL") or "gpt-5.6-luna"
+            model = args.model or configured_model()
             spec = generate_screen(OpenAI(), args.pedido, model)
             document = spec.model_dump(exclude_defaults=True)
         result = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
