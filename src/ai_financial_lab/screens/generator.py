@@ -1,3 +1,4 @@
+import os
 from typing import Literal
 
 from openai import OpenAI
@@ -94,6 +95,10 @@ juros, divida o preço pelo número editável de parcelas.
 Escolha a ordem dos campos e dos cálculos. Use results_first ou inputs_first
 conforme o objetivo. show_breakdown exibe etapas intermediárias e allow_reset
 permite restaurar os valores iniciais. O aplicativo monta os componentes visuais."""
+
+
+def configured_model() -> str:
+    return os.getenv("OPENAI_MODEL") or "gpt-5.6-luna"
 
 
 def generate_screen(client: OpenAI, request: str, model: str) -> ScreenSpec:
