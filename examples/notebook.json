@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "fields": {"preco": {"type": "decimal"}, "parcelas": {"type": "integer"}},
+  "initialState": {"preco": "8000", "parcelas": "8"},
+  "computed": {
+    "valor_parcela": {"op": "divide", "args": [{"ref": "preco"}, {"ref": "parcelas"}]}
+  },
+  "children": [
+    {"id": "titulo", "type": "text", "text": "Notebook sem juros", "role": "title"},
+    {"id": "entrada_preco", "type": "input", "bind": "preco", "label": "Preço do notebook", "suffix": "R$"},
+    {"id": "entrada_parcelas", "type": "input", "bind": "parcelas", "label": "Quantidade de parcelas"},
+    {"id": "resultado", "type": "card", "children": [
+      {"id": "rotulo", "type": "text", "text": "Valor de cada parcela"},
+      {"id": "valor", "type": "text", "bind": "valor_parcela", "role": "highlight", "format": "BRL"}
+    ]}
+  ]
+}

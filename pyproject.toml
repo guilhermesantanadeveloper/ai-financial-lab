@@ -9,11 +9,13 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "openai>=3.16.2",
+    "pydantic>=2.12,<3",
     "python-dotenv>=1.2.3",
 ]
 
 [project.scripts]
 ai-financial-lab = "ai_financial_lab.main:main"
+generate-screen = "ai_financial_lab.screens.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]
