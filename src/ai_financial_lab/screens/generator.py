@@ -1,106 +1,106 @@
+from typing import Literal
+
 from openai import OpenAI
 
 from .contract import (
-    Binding, Card, Expression, Field, ListNode, Model, Node, ScreenSpec, references,
+    BoundRow, BoundText, Button, Card, Expression, Field, Input, ListNode,
+    LiteralText, Model, Node, ScreenSpec, references,
 )
 
 
 class DraftField(Field):
     name: str
+    label: str
     initial: str
+    suffix: str
 
 
 class DraftCalculation(Model):
     name: str
+    label: str
+    format: Literal["", "BRL"]
     expression: Expression
 
 
 class ScreenDraft(Model):
+    title: str
     fields: list[DraftField]
     computed: list[DraftCalculation]
-    children: list[Node]
+    layout: Literal["inputs_first", "results_first"]
+    show_breakdown: bool
+    allow_reset: bool
 
     def to_screen(self) -> ScreenSpec:
         fields = {f.name: Field(type=f.type) for f in self.fields}
         computed = {c.name: c.expression for c in self.computed}
         if len(fields) != len(self.fields) or len(computed) != len(self.computed):
             raise ValueError("Nome duplicado na saída do modelo")
-        screen = ScreenSpec(
+        if not fields or not computed:
+            raise ValueError("A calculadora precisa de campos de entrada e de um cálculo")
+        if not self.title.strip() or any(not item.label.strip() for item in [*self.fields, *self.computed]):
+            raise ValueError("Informe o título da tela e os rótulos dos campos e cálculos")
+
+        inputs = [
+            Input(id=f"input_{f.name}", type="input", bind=f.name,
+                  label=f.label.strip(), suffix=f.suffix.strip())
+            for f in self.fields
+        ]
+        # A calculation consumed by another calculation is an intermediate result.
+        dependencies = {name for expr in computed.values() for name in references(expr)}
+        results: list[Node] = []
+        details = []
+        for calc in self.computed:
+            name = calc.name
+            label = calc.label.strip()
+            if name in dependencies:
+                if self.show_breakdown:
+                    details.append(BoundRow(id=name, title=label, bind=name, format=calc.format))
+            else:
+                results.append(Card(id=f"result_{name}", type="card", children=[
+                    LiteralText(id="label", type="text", text=label),
+                    BoundText(id="value", type="text", bind=name, format=calc.format, role="highlight"),
+                ]))
+
+        children: list[Node] = [
+            LiteralText(id="title", type="text", role="title", text=self.title.strip())
+        ]
+        if self.layout == "inputs_first":
+            children.extend([*inputs, *results])
+        else:
+            children.extend([*results, *inputs])
+        if details:
+            children.append(ListNode(id="breakdown", type="list", items=details))
+        if self.allow_reset:
+            children.append(Button(id="reset", type="button", label="Restaurar valores iniciais",
+                                   action="reset_fields"))
+        return ScreenSpec(
             schemaVersion=1,
             fields=fields,
             initialState={f.name: f.initial for f in self.fields},
             computed=computed,
-            children=self.children,
+            children=children,
         )
 
-        validate_generated_layout(screen)
-        return screen
 
-
-def validate_generated_layout(screen: ScreenSpec) -> None:
-    """Check calculator usability after validating the Android wire contract."""
-    visible = set()
-    problems = []
-
-    def visit(items):
-        for item in items:
-            if isinstance(item, Binding):
-                visible.add(item.bind)
-            elif isinstance(item, Card):
-                if not item.children:
-                    problems.append(f"Card vazio: {item.id}")
-                elif len(item.children) == 1 and isinstance(item.children[0], Card):
-                    problems.append(f"Remova o card redundante: {item.id}")
-                visit(item.children)
-            elif isinstance(item, ListNode):
-                visit(item.items)
-
-    visit(screen.children)
-    dependencies = {name for expr in screen.computed.values() for name in references(expr)}
-    results = screen.computed.keys() - dependencies
-    if not results:
-        problems.append("Declare o resultado da calculadora em computed")
-    elif not results.intersection(visible):
-        problems.append(f"Exiba um resultado usando text.bind ou um item de lista: {sorted(results)}")
-    if problems:
-        raise ValueError(". ".join(problems))
-
-
-def generation_schema() -> dict:
-    """Strict structured outputs require every property of each object to be present."""
-    schema = ScreenDraft.model_json_schema()
-    for definition in [schema, *schema["$defs"].values()]:
-        if "properties" in definition:
-            definition["required"] = list(definition["properties"])
-            for prop in definition["properties"].values():
-                prop.pop("default", None)
-    return schema
-
-
-INSTRUCTIONS = """Crie uma calculadora interativa em português brasileiro para o pedido.
-Escolha quais valores a pessoa vai variar e crie inputs ligados a esses campos.
-Preserve os números informados. Para dados desconhecidos, use initial vazio ou um
-valor inicial explicitamente descrito como cenário editável. Use strings numéricas
-sem separadores de milhar. Mantenha as fórmulas em computed: ref aponta para um
-campo ou outro cálculo; divide aceita dois argumentos na ordem numerador, divisor.
-Use format BRL para resultados monetários. Use format e suffix vazios quando
-dispensáveis. Dê IDs estáveis aos componentes e organize os children na ordem de
-leitura. Só use reset_fields quando fizer sentido restaurar os valores iniciais.
-Comece com um text literal de role title. Card agrupa conteúdo visível; evite
-containers vazios ou que apenas envolvem outro card. Para exibir uma prestação,
-por exemplo, use este children dentro do card, adaptando o bind ao cálculo real:
-[{"id":"rotulo","type":"text","text":"Valor da parcela","role":"body"},
- {"id":"valor","type":"text","bind":"valor_parcela","format":"BRL","role":"highlight"}].
-O id identifica um componente; para mostrar um valor calculado, use bind.
-Para comparar parcelamentos sem juros, deixe o número de parcelas editável e
-mostre o valor por parcela calculado, preservando o preço fornecido."""
+INSTRUCTIONS = """Planeje uma calculadora interativa em português brasileiro.
+Dê à tela um título curto. Defina campos editáveis com nomes estáveis, rótulos,
+unidades e valores iniciais. Preserve os números do pedido. Use strings numéricas
+sem separador de milhar. Para valores desconhecidos, use initial vazio ou indique
+que o valor é uma hipótese editável. Use suffix vazio quando não houver unidade.
+Defina cada cálculo com nome, rótulo, formato (BRL para dinheiro, vazio para
+outros valores) e expressão. Use ref para ler um campo ou outro cálculo.
+divide aceita dois argumentos na ordem numerador, divisor. Em parcelamentos sem
+juros, divida o preço pelo número editável de parcelas.
+Escolha a ordem dos campos e dos cálculos. Use results_first ou inputs_first
+conforme o objetivo. show_breakdown exibe etapas intermediárias e allow_reset
+permite restaurar os valores iniciais. O aplicativo monta os componentes visuais."""
 
 
 def generate_screen(client: OpenAI, request: str, model: str) -> ScreenSpec:
     messages = [{"role": "user", "content": request}]
     response_format = {
         "type": "json_schema", "name": "screen_draft",
-        "schema": generation_schema(), "strict": True,
+        "schema": ScreenDraft.model_json_schema(), "strict": True,
     }
     for attempt in range(2):
         response = client.responses.create(
