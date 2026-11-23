@@ -10,7 +10,7 @@ from .generator import configured_model, generate_screen
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Gera uma ScreenSpec v1 para o GenUi2")
+    parser = argparse.ArgumentParser(description="Gera uma ScreenSpec para o GenUi2")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("pedido", nargs="?", help="Descrição da tela em linguagem natural")
     source.add_argument("--schema", action="store_true", help="Exporta o JSON Schema do Android")

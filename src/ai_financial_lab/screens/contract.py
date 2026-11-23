@@ -1,4 +1,4 @@
-"""ScreenSpec v1 as consumed by GenUi2's ScreenSpecParser and ScreenResolver."""
+"""ScreenSpec as consumed by GenUi2's ScreenSpecParser and ScreenResolver."""
 
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ class Model(BaseModel):
 
 class Field(Model):
     type: Literal["integer", "decimal"]
+
+
+class ScreenField(Field):
+    fractionAsPercent: bool = False
 
 
 class Reference(Model):
@@ -108,14 +112,16 @@ def references(expr: Expression):
 
 
 class ScreenSpec(Model):
-    schemaVersion: Literal[1]
-    fields: dict[str, Field]
+    schemaVersion: Literal[1, 2]
+    fields: dict[str, ScreenField]
     initialState: dict[str, str]
     computed: dict[str, Expression]
     children: list[Node]
 
     @model_validator(mode="after")
     def validate_links(self):
+        if self.schemaVersion == 1 and any(f.fractionAsPercent for f in self.fields.values()):
+            raise ValueError("A conversão de fração em porcentagem exige a ScreenSpec v2")
         names = self.fields.keys() | self.computed.keys()
         if self.fields.keys() & self.computed.keys() or any(not n.strip() for n in names):
             raise ValueError("Campos e cálculos precisam de nomes únicos e preenchidos")

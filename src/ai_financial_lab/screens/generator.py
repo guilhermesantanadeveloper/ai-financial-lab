@@ -4,10 +4,11 @@ from collections.abc import Callable
 from typing import Literal
 
 from openai import OpenAI
+from pydantic import model_validator
 
 from .contract import (
     BoundRow, BoundText, Button, Card, Expression, Field, Input, ListNode,
-    LiteralText, Model, Node, ScreenSpec, references,
+    LiteralText, Model, Node, ScreenField, ScreenSpec, references,
 )
 
 
@@ -31,8 +32,15 @@ class Section(Model):
     refs: list[str]
 
 
-class Layout(Model):
-    sections: list[Section]
+class PercentInput(Model):
+    field: str
+    stored_as: Literal["fraction", "percentage_points"]
+    suffix: str
+
+
+class PresentationRevision(Model):
+    sections: list[Section] | None
+    percent_updates: list[PercentInput]
 
 
 class ScreenDraft(Model):
@@ -41,6 +49,14 @@ class ScreenDraft(Model):
     computed: list[DraftCalculation]
     allow_reset: bool
     sections: list[Section]
+    percentages: list[PercentInput]
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_existing_draft(cls, data):
+        if isinstance(data, dict) and "percentages" not in data:
+            return {**data, "percentages": []}
+        return data
 
     def to_screen(self) -> ScreenSpec:
         field_by_name = {f.name: f for f in self.fields}
@@ -51,6 +67,19 @@ class ScreenDraft(Model):
             raise ValueError("A calculadora precisa de campos de entrada e de um cálculo")
         if not self.title.strip() or any(not item.label.strip() for item in [*self.fields, *self.computed]):
             raise ValueError("Informe o título da tela e os rótulos dos campos e cálculos")
+
+        percentages = {item.field: item for item in self.percentages}
+        if len(percentages) != len(self.percentages):
+            raise ValueError("Formato percentual repetido")
+        for name, item in percentages.items():
+            if name not in field_by_name or not item.suffix.strip().startswith("%"):
+                raise ValueError(f"Formato percentual inválido: {name}")
+        screen_fields = {
+            name: ScreenField(type=field.type, fractionAsPercent=(
+                name in percentages and percentages[name].stored_as == "fraction"
+            ))
+            for name, field in field_by_name.items()
+        }
 
         children: list[Node] = [
             LiteralText(id="title", type="text", role="title", text=self.title.strip())
@@ -71,8 +100,9 @@ class ScreenDraft(Model):
                     if name not in field_by_name:
                         raise ValueError(f"Campo desconhecido na seção de entradas: {name}")
                     field = field_by_name[name]
+                    suffix = percentages[name].suffix if name in percentages else field.suffix
                     children.append(Input(id=f"input_{name}", type="input", bind=name,
-                                          label=field.label.strip(), suffix=field.suffix.strip()))
+                                          label=field.label.strip(), suffix=suffix.strip()))
                     continue
                 if name not in calc_by_name:
                     raise ValueError(f"Cálculo desconhecido na seção de resultados: {name}")
@@ -96,8 +126,8 @@ class ScreenDraft(Model):
             children.append(Button(id="reset", type="button", label="Restaurar valores iniciais",
                                    action="reset_fields"))
         return ScreenSpec(
-            schemaVersion=1,
-            fields={f.name: Field(type=f.type) for f in self.fields},
+            schemaVersion=2 if any(f.fractionAsPercent for f in screen_fields.values()) else 1,
+            fields=screen_fields,
             initialState={f.name: f.initial for f in self.fields},
             computed=computed,
             children=children,
@@ -115,6 +145,10 @@ divide aceita dois argumentos na ordem numerador, divisor. Em parcelamentos sem
 juros, divida o preço pelo número editável de parcelas.
 Para rótulos de resultados que dependem de uma entrada editável, evite fixar
 no texto o valor inicial da entrada. Use, por exemplo, "Custo na porção alvo".
+Descreva entradas exibidas em % na lista percentages; use [] para as outras telas.
+Use stored_as fraction quando a fórmula lê 0.105 para exibir 10,5%, inclusive
+quando o usuário forneceu 10,5%. Use percentage_points se a fórmula já lê 10.5.
+Preserve a unidade temporal ou o índice em suffix, por exemplo "% a.a." ou "% do CDI".
 allow_reset permite restaurar os valores iniciais."""
 
 LAYOUT_INSTRUCTIONS = """Organize sections na ordem de leitura. Cada seção tem title
@@ -149,13 +183,31 @@ def generate_screen(client: OpenAI, request: str, model: str) -> ScreenSpec:
 
 def revise_preview(client: OpenAI, draft: ScreenDraft, feedback: str, model: str) -> ScreenPreview:
     def build(raw: str) -> ScreenPreview:
-        layout = Layout.model_validate_json(raw)
-        revised = draft.model_copy(update={"sections": layout.sections})
+        revision = PresentationRevision.model_validate_json(raw)
+        updates = {item.field: item for item in revision.percent_updates}
+        if len(updates) != len(revision.percent_updates):
+            raise ValueError("Campo repetido na revisão de porcentagens")
+        formats = {item.field: item for item in draft.percentages}
+        for name, item in updates.items():
+            if name in formats and formats[name].stored_as != item.stored_as:
+                raise ValueError(f"Preserve a escala original do campo {name}")
+        formats.update(updates)
+        revised = draft.model_copy(update={
+            "sections": draft.sections if revision.sections is None else revision.sections,
+            "percentages": list(formats.values()),
+        })
         return ScreenPreview(draft=revised, screen=revised.to_screen())
 
     request = json.dumps({"current": draft.model_dump(), "feedback": feedback}, ensure_ascii=False)
-    return _request_preview(client, model, request, "Ajuste apenas o layout do plano atual conforme o feedback.",
-                            Layout, build)
+    instructions = """Ajuste a apresentação conforme o feedback. Para pedidos de unidade ou porcentagem,
+devolva sections=null e inclua cada campo solicitado em percent_updates. Identifique o grupo pelas
+refs das seções atuais. Trocar o título da seção não altera a unidade de nenhum campo.
+Use stored_as fraction se a fórmula consome uma fração ou multiplicador (0.105 => 10,5%;
+1.1 x CDI => 110% do CDI), ou percentage_points se ela já consome pontos percentuais
+(10.5 => 10,5%). Examine as expressões, os formatos existentes e os sufixos originais.
+suffix começa com %, preservando período/índice quando aplicável. Para pedidos apenas de
+ordenação, envie percent_updates=[] e o novo conjunto de seções. Em pedidos mistos, envie ambos."""
+    return _request_preview(client, model, request, instructions, PresentationRevision, build)
 
 
 def _request_preview(client: OpenAI, model: str, request: str, instructions: str,
