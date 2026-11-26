@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Annotated
 
 import uvicorn
@@ -7,7 +8,7 @@ from openai import APITimeoutError, AuthenticationError, OpenAI, OpenAIError, Ra
 from pydantic import BaseModel, StringConstraints
 
 from .contract import ScreenSpec
-from .generator import configured_model, generate_screen
+from .generator import ScreenDraft, ScreenPreview, configured_model, generate_screen, generate_preview, revise_preview
 
 app = FastAPI(title="GenUi2")
 
@@ -16,11 +17,33 @@ class GenerateRequest(BaseModel):
     prompt: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
+class RevisionRequest(GenerateRequest):
+    draft: ScreenDraft
+
+
 @app.post("/screens/generate", response_model_exclude_defaults=True)
 def generate(request: GenerateRequest) -> ScreenSpec:
+    with model_client() as client:
+        return generate_screen(client, request.prompt, configured_model())
+
+
+@app.post("/screens/preview", response_model_exclude_defaults=True)
+def preview(request: GenerateRequest) -> ScreenPreview:
+    with model_client() as client:
+        return generate_preview(client, request.prompt, configured_model())
+
+
+@app.post("/screens/revise", response_model_exclude_defaults=True)
+def revise(request: RevisionRequest) -> ScreenPreview:
+    with model_client() as client:
+        return revise_preview(client, request.draft, request.prompt, configured_model())
+
+
+@contextmanager
+def model_client():
     try:
         with OpenAI(timeout=45.0, max_retries=0) as client:
-            return generate_screen(client, request.prompt, configured_model())
+            yield client
     except APITimeoutError as exc:
         raise HTTPException(504, "O modelo demorou para responder. Tente novamente.") from exc
     except AuthenticationError as exc:

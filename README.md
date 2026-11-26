@@ -16,7 +16,7 @@ Com o emulador aberto ou o celular conectado por USB com depuração habilitada,
 adb reverse tcp:8000 tcp:8000
 ```
 
-Abra a variante **debug** do GenUi2, descreva a calculadora e toque em **Gerar tela**. O app envia `POST /screens/generate` com um objeto como `{"prompt": "Divida R$ 20000 em 8 parcelas sem juros"}`. A resposta HTTP 200 contém diretamente a ScreenSpec v1 usada pelo renderer. Erros de entrada retornam 422, e falhas do provedor têm um campo `detail`. O servidor escuta em `127.0.0.1:8000`. A edição dos valores e o recálculo acontecem no Android.
+Abra a variante **debug** do GenUi2, descreva a calculadora e toque em **Gerar tela**. O app envia `POST /screens/preview` com um objeto como `{"prompt": "Divida R$ 20000 em 8 parcelas sem juros"}`. A resposta contém `draft` (o plano com campos, cálculos e seções) e `screen` (a ScreenSpec usada pelo renderer). Em **Ajustar tela**, o app envia o último `draft` e o pedido de organização em `prompt` para `POST /screens/revise`. O servidor recompõe a prévia aplicando alterações de organização e formato dos campos. Os valores digitados ficam no Android. Clientes que consomem somente a ScreenSpec podem continuar usando `POST /screens/generate`. Erros de entrada retornam 422, e falhas do provedor têm um campo `detail`. O servidor escuta em `127.0.0.1:8000`. A edição dos valores e o recálculo acontecem no Android.
 
 ## Gerar uma tela para o GenUi2
 
@@ -30,13 +30,15 @@ O comando envia o pedido ao modelo e grava o JSON após validar componentes, ref
 
 Para conferir no Android, na versão do [GenUi2 que lê o asset local](https://github.com/guilhermesantanadeveloper/GenUi2/pull/1), substitua temporariamente o conteúdo de `app/src/main/assets/meu_carro.json` pelo JSON exportado e execute o aplicativo. Com o preço de R$ 8.000, a prestação deve passar de R$ 1.000 em 8 vezes para R$ 800 em 10 vezes.
 
-O arquivo [examples/notebook.json](examples/notebook.json) é um exemplo fixo para comparação. O contrato aceita `text`, `input`, `card`, `list` e `button`, operações `add`, `multiply` e `divide` e a ação `reset_fields`. Para exportar o JSON Schema v1 sem chamar a API:
+A ScreenSpec v2 identifica entradas com `fractionAsPercent`. Uma taxa armazenada como `0.105` aparece como `10,5 %` e as fórmulas continuam usando a fração. A conversão exige a versão correspondente do Android. Telas sem conversão usam a v1.
+
+O arquivo [examples/notebook.json](examples/notebook.json) é um exemplo fixo para comparação. O contrato aceita `text`, `input`, `card`, `list` e `button`, operações `add`, `multiply` e `divide` e a ação `reset_fields`. Para exportar o JSON Schema sem chamar a API:
 
 ```sh
-uv run generate-screen --schema --output screen-spec-v1.schema.json
+uv run generate-screen --schema --output screen-spec.schema.json
 ```
 
-O modelo devolve listas de campos e cálculos nomeados. O gerador converte essas listas nos mapas `fields`, `initialState` e `computed` usados pelo parser Kotlin. O plano escolhe entre campos ou resultados primeiro. Cada cálculo final recebe um card com rótulo e valor. Os cálculos intermediários podem aparecer em uma lista de detalhes.
+O modelo devolve listas de campos e cálculos nomeados. O gerador converte essas listas nos mapas `fields`, `initialState` e `computed` usados pelo parser Kotlin. O plano descreve seções em ordem de leitura. Cada seção referencia campos editáveis, resultados em destaque ou cálculos apresentados juntos numa lista comparativa. Cada campo e cada resultado final devem aparecer uma vez. As etapas intermediárias são opcionais.
 
 ## Exercício de ferramentas financeiras
 
